@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QPushButton,
-    QLineEdit, QComboBox, QGridLayout, QTextEdit
+    QLineEdit, QComboBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt
 import json
@@ -97,48 +97,45 @@ class CalendarView(QMainWindow):
         layout.addStretch()
         #init total credits count
         self.total_credits = 0
+        self.course_codes = set()
 
     def update_total_credits(self):
         self.total_credits_label.setText(f"Total Credits: {self.total_credits}")
-
+    
     def setup_calendar(self, layout):
-        # Clear existing calendar
+    #removes any existing widgets in the layout
         for i in reversed(range(layout.count())):
             layout.itemAt(i).widget().deleteLater()
 
-        #header rows
-        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-        for col, day in enumerate(days):
-            label = QLabel(day)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(label, 0, col + 1)
+        #table widget
+        self.calendar_table = QTableWidget(len(self.time_slots), 5)  #rows: time slots, columns: days
+        self.calendar_table.setHorizontalHeaderLabels(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+        self.calendar_table.setVerticalHeaderLabels(self.time_slots)
+        self.calendar_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.calendar_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
 
-        #time collumns
-        for row, time_label in enumerate(self.time_slots):
-            label = QLabel(time_label)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(label, row + 1, 0)
+        #responsive resizing enabled
+        self.calendar_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.calendar_table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        #placeholders for the grid
-        self.calendar_cells = {}
-        for row in range(1, len(self.time_slots) + 1):
-            for col in range(1, len(days) + 1):
-                cell = QTextEdit()
-                cell.setReadOnly(True)
-                cell.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                cell.customContextMenuRequested.connect(lambda pos, r=row, c=col: self.remove_course_block(r, c))
-                cell.setStyleSheet("background-color: #f0f0f0;")
-                layout.addWidget(cell, row, col)
-                self.calendar_cells[(row, col)] = cell  
+        #default table style
+        self.calendar_table.setStyleSheet("gridline-color: white;")
+        self.calendar_table.horizontalHeader().setDefaultSectionSize(100)
+        self.calendar_table.verticalHeader().setDefaultSectionSize(50)
+
+        # Add the table to the layout
+        layout.addWidget(self.calendar_table)
 
     def add_course_to_calendar(self):
         #user input used
         course_name = self.course_name_input.text()
+        course_code = self.course_code_input.text()
         credits = self.credits_input.text()
         day = self.day_input.currentText()
         time_slot = self.time_input.text()
 
-        if not course_name or not time_slot or not credits.isdigit():
+        #if not course_name or not time_slot or not credits.isdigit():
+        if not course_name or not course_code or not time_slot or not credits.isdigit():
             return #error checking
 
         #time slot parsing
@@ -150,32 +147,50 @@ class CalendarView(QMainWindow):
             return #error handling
 
         #finding the column of the selected day
-        day_to_col = {"Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5}
-        col = day_to_col.get(day, 1)
+        day_to_col = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4}
+        col = day_to_col.get(day, 0)
 
-        #cell update
-        for row in range(start_index + 1, end_index + 1):  #+1 because rows are 1-indexed
-            cell = self.calendar_cells.get((row, col))
-            if cell:
-                cell.setText(f"{course_name}\nCredits: {credits}")
-                cell.setStyleSheet("background-color: #b3e5fc;")
+        #check for conflicts
+        for row in range(start_index, end_index):
+            if self.calendar_table.item(row, col) is not None:
+                print(f"Cell conflict for {course_name} at {day}, {start_time}-{end_time}.")
+                return
 
-        self.total_credits += int(credits)
-        self.update_total_credits()
+        #adds the course
+        span_rows = end_index - start_index
+        self.calendar_table.setSpan(start_index, col, span_rows, 1)
+        course_item = QTableWidgetItem(f"{course_name}\nCredits: {credits}")
+        course_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        course_item.setBackground(Qt.GlobalColor.cyan) #background color
+        course_item.setForeground(Qt.GlobalColor.black) #text color
+        self.calendar_table.setItem(start_index, col, course_item)
+
+        #updates the sum of credits if the course is new
+        if course_code not in self.course_codes:
+            self.course_codes.add(course_code)
+            self.total_credits += int(credits)
+            self.update_total_credits()
 
     #function to remove the course block on the grid
     def remove_course_block(self, row, col):
-        cell = self.calendar_cells.get((row, col))
-        if cell and cell.toPlainText():
-            course_name = cell.toPlainText().split("\n")[0]  #gets the course name
-            credits = int(cell.toPlainText().split("\n")[1].replace("Credits: ", ""))
-            cell.clear()
-            cell.setStyleSheet("background-color: #f0f0f0;")
+        item = self.calendar_table.item(row, col)
+        if item:
+            course_data = item.text().split("\n")
+            course_name = course_data[0]
+            credits = int(course_data[1].replace("Credits: ", ""))
+            course_code = course_data[0]  #course code matching
+
+            #clearing the table
+            self.calendar_table.removeCellWidget(row, col)
+            self.calendar_table.clearSpans()
+
             print(f"Removed course: {course_name}")
 
-            #adjusting total credits
-            self.total_credits -= credits
-            self.update_total_credits()
+            #Adjusting the credit count
+            if course_code in self.course_codes:
+                self.course_codes.remove(course_code)
+                self.total_credits -= credits
+                self.update_total_credits()
 
 
 
@@ -216,15 +231,24 @@ class CalendarView(QMainWindow):
             "courses": []
         }
 
-        #first gets the courses
-        for (row, col), cell in self.calendar_cells.items():
-            if cell.toPlainText():
-                schedule_data["courses"].append({
-                    "name": cell.toPlainText(),
-                    "day": self.get_day_from_col(col),
-                    "start_time": self.time_slots[row - 1],  #adjusted for 0 index
-                    "end_time": self.time_slots[row] if row < len(self.time_slots) else None
-                })
+        #gets the courses
+        for row in range(self.calendar_table.rowCount()):
+            for col in range(self.calendar_table.columnCount()):
+                item = self.calendar_table.item(row, col)
+                if item and self.calendar_table.columnSpan(row, col) == 1:
+                    course_data = item.text().split("\n")
+                    course_name = course_data[0]
+                    credits = int(course_data[1].replace("Credits: ", ""))
+                    start_time = self.time_slots[row]
+                    end_time = self.time_slots[row + self.calendar_table.rowSpan(row, col)]
+
+                    schedule_data["courses"].append({
+                        "name": course_name,
+                        "credits": credits,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "day": self.get_day_from_col(col)
+                    })
 
         #output to json
         with open("schedule.json", "w") as file:
@@ -241,13 +265,12 @@ class CalendarView(QMainWindow):
             self.update_time_slots()  #regenerate the grid
 
             #clears the calendar
-            for cell in self.calendar_cells.values():
-                cell.clear()
-                cell.setStyleSheet("background-color: #f0f0f0;")
+            self.calendar_table.clearContents()
+            self.calendar_table.clearSpans()
 
             #courses added back
             for course in schedule_data["courses"]:
-                self.add_course_to_calendar_from_data(course)
+                self.load_course_to_calendar(course)
 
             print("Schedule loaded")
         except FileNotFoundError:
@@ -259,22 +282,31 @@ class CalendarView(QMainWindow):
 
     def get_day_from_col(self, col):
         #column index to day mappings
-        col_to_day = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday"}
+        col_to_day = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday"}
         return col_to_day.get(col, "Unknown")
 
-    def add_course_to_calendar_from_data(self, course):
-        #adds course from the saved data
-        day = course["day"]
-        start_time = course["start_time"]
-        name = course["name"]
+    def load_course_to_calendar(self, course):
+        day_to_col = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4}
+        col = day_to_col[course["day"]]
 
-        #find row and column
         try:
-            row = self.time_slots.index(start_time) + 1  #adjusedt for 1-based indexing
-            col = {"Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5}[day]
-            cell = self.calendar_cells.get((row, col))
-            if cell:
-                cell.setText(name)
-                cell.setStyleSheet("background-color: #b3e5fc;")
+            start_index = self.time_slots.index(course["start_time"])
+            end_index = self.time_slots.index(course["end_time"])
+            span_rows = end_index - start_index
+
+            # Add the course to the calendar
+            self.calendar_table.setSpan(start_index, col, span_rows, 1)
+            course_item = QTableWidgetItem(f"{course['name']}\nCredits: {course['credits']}")
+            course_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            course_item.setBackground(Qt.GlobalColor.cyan)
+            course_item.setForeground(Qt.GlobalColor.black)
+            self.calendar_table.setItem(start_index, col, course_item)
+
+            # Update total credits
+            if course["name"] not in self.course_codes:
+                self.course_codes.add(course["name"])
+                self.total_credits += course["credits"]
+                self.update_total_credits()
         except ValueError:
-            print(f"Error: Invalid time slot for course '{name}'")
+            print(f"Error: Invalid time slot:'{course['name']}'")
+
