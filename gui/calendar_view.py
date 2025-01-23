@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QPushButton,
-    QLineEdit, QComboBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView
+    QLineEdit, QComboBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QColorDialog
 )
 from PyQt6.QtCore import Qt
 import json
@@ -78,6 +78,8 @@ class CalendarView(QMainWindow):
         self.total_credits_label = QLabel("Total Credits: 0")
         layout.addWidget(self.total_credits_label)
 
+
+
         #added to layout
         layout.addWidget(QLabel("Add Course:"))
         layout.addWidget(self.course_name_input)
@@ -93,6 +95,20 @@ class CalendarView(QMainWindow):
         layout.addWidget(self.add_course_button)
         layout.addWidget(self.save_button)
         layout.addWidget(self.load_button)
+
+        #line break
+        layout.addWidget(QLabel(""))
+
+        #delete button
+        self.delete_button = QPushButton("Delete Selected Block")
+        self.delete_button.clicked.connect(self.delete_selected_block)
+        layout.addWidget(self.delete_button)
+
+        #change block color button
+        self.color_button = QPushButton("Change Block Color")
+        self.color_button.clicked.connect(self.change_selected_block_color)
+        layout.addWidget(self.color_button)
+
 
         layout.addStretch()
         #init total credits count
@@ -112,7 +128,9 @@ class CalendarView(QMainWindow):
         self.calendar_table.setHorizontalHeaderLabels(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
         self.calendar_table.setVerticalHeaderLabels(self.time_slots)
         self.calendar_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.calendar_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.calendar_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.calendar_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectItems)
+
 
         #responsive resizing enabled
         self.calendar_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -171,28 +189,35 @@ class CalendarView(QMainWindow):
             self.total_credits += int(credits)
             self.update_total_credits()
 
-    #function to remove the course block on the grid
-    def remove_course_block(self, row, col):
-        item = self.calendar_table.item(row, col)
-        if item:
-            course_data = item.text().split("\n")
-            course_name = course_data[0]
-            credits = int(course_data[1].replace("Credits: ", ""))
-            course_code = course_data[0]  #course code matching
+    #function to remove the course block on the table
+    def delete_selected_block(self):
+        selected_items = self.calendar_table.selectedItems()
+        if not selected_items:
+            print("No block selected")
+            return
 
-            #clearing the table
-            self.calendar_table.removeCellWidget(row, col)
-            self.calendar_table.clearSpans()
+        item = selected_items[0]
+        row = item.row()
+        col = item.column()
 
-            print(f"Removed course: {course_name}")
+        #get course details
+        course_data = item.text().split("\n")
+        course_name = course_data[0]
+        credits = int(course_data[1].replace("Credits: ", ""))
+        course_code = course_name
 
-            #Adjusting the credit count
-            if course_code in self.course_codes:
-                self.course_codes.remove(course_code)
-                self.total_credits -= credits
-                self.update_total_credits()
+        #removes the block
+        self.calendar_table.removeCellWidget(row, col)
+        self.calendar_table.clearSpans()
+        self.calendar_table.takeItem(row, col)
 
+        print(f"Removed course: {course_name}")
 
+        #adjust total credits sum
+        if course_code in self.course_codes:
+            self.course_codes.remove(course_code)
+            self.total_credits -= credits
+            self.update_total_credits()
 
     def update_time_slots(self):
         #gets the time range from the user input
@@ -310,3 +335,18 @@ class CalendarView(QMainWindow):
         except ValueError:
             print(f"Error: Invalid time slot:'{course['name']}'")
 
+    def change_selected_block_color(self):
+        selected_items = self.calendar_table.selectedItems()
+        if not selected_items:
+            print("No block selected")
+            return
+
+        item = selected_items[0]
+
+        #color dialog
+        color = QColorDialog.getColor()
+
+        if color.isValid():
+            #update color
+            item.setBackground(color)
+            print("Block color updated.")
