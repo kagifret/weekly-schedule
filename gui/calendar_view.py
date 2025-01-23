@@ -74,6 +74,10 @@ class CalendarView(QMainWindow):
         self.load_button = QPushButton("Load Schedule")
         self.load_button.clicked.connect(self.load_schedule)
 
+        #total credits count
+        self.total_credits_label = QLabel("Total Credits: 0")
+        layout.addWidget(self.total_credits_label)
+
         #added to layout
         layout.addWidget(QLabel("Add Course:"))
         layout.addWidget(self.course_name_input)
@@ -91,6 +95,11 @@ class CalendarView(QMainWindow):
         layout.addWidget(self.load_button)
 
         layout.addStretch()
+        #init total credits count
+        self.total_credits = 0
+
+    def update_total_credits(self):
+        self.total_credits_label.setText(f"Total Credits: {self.total_credits}")
 
     def setup_calendar(self, layout):
         # Clear existing calendar
@@ -116,6 +125,8 @@ class CalendarView(QMainWindow):
             for col in range(1, len(days) + 1):
                 cell = QTextEdit()
                 cell.setReadOnly(True)
+                cell.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                cell.customContextMenuRequested.connect(lambda pos, r=row, c=col: self.remove_course_block(r, c))
                 cell.setStyleSheet("background-color: #f0f0f0;")
                 layout.addWidget(cell, row, col)
                 self.calendar_cells[(row, col)] = cell  
@@ -123,11 +134,12 @@ class CalendarView(QMainWindow):
     def add_course_to_calendar(self):
         #user input used
         course_name = self.course_name_input.text()
+        credits = self.credits_input.text()
         day = self.day_input.currentText()
         time_slot = self.time_input.text()
 
-        if not course_name or not time_slot:
-            return #WIP
+        if not course_name or not time_slot or not credits.isdigit():
+            return #error checking
 
         #time slot parsing
         try:
@@ -145,8 +157,26 @@ class CalendarView(QMainWindow):
         for row in range(start_index + 1, end_index + 1):  #+1 because rows are 1-indexed
             cell = self.calendar_cells.get((row, col))
             if cell:
-                cell.setText(course_name)
+                cell.setText(f"{course_name}\nCredits: {credits}")
                 cell.setStyleSheet("background-color: #b3e5fc;")
+
+        self.total_credits += int(credits)
+        self.update_total_credits()
+
+    #function to remove the course block on the grid
+    def remove_course_block(self, row, col):
+        cell = self.calendar_cells.get((row, col))
+        if cell and cell.toPlainText():
+            course_name = cell.toPlainText().split("\n")[0]  #gets the course name
+            credits = int(cell.toPlainText().split("\n")[1].replace("Credits: ", ""))
+            cell.clear()
+            cell.setStyleSheet("background-color: #f0f0f0;")
+            print(f"Removed course: {course_name}")
+
+            #adjusting total credits
+            self.total_credits -= credits
+            self.update_total_credits()
+
 
 
     def update_time_slots(self):
