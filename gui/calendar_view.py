@@ -3,17 +3,18 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QGridLayout, QTextEdit
 )
 from PyQt6.QtCore import Qt
+import json
 
 class CalendarView(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Weekly Scheduler")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1200, 500)
 
         #default init settings
         self.time_slots = []
-        start_minutes = 8 * 60  #8AM
-        end_minutes = 17 * 60 + 30  #5:30PM
+        start_minutes = 9 * 60  #9AM
+        end_minutes = 15 * 60 + 30  #3:30PM
         for minutes in range(start_minutes, end_minutes, 30):
             hour = minutes // 60
             minute = minutes % 60
@@ -52,6 +53,10 @@ class CalendarView(QMainWindow):
         self.time_input = QLineEdit()
         self.time_input.setPlaceholderText("Time Slot (10:00-12:00)")
 
+        #adding a course
+        self.add_course_button = QPushButton("Add Course")
+        self.add_course_button.clicked.connect(self.add_course_to_calendar)
+
         #custom time hours customization
         self.start_hour_input = QLineEdit()
         self.start_hour_input.setPlaceholderText("Start Hour (ex: 08:00)")
@@ -62,9 +67,12 @@ class CalendarView(QMainWindow):
         self.update_slots_button = QPushButton("Update Time slots")
         self.update_slots_button.clicked.connect(self.update_time_slots)
 
-        #button
-        self.add_course_button = QPushButton("Add Course")
-        self.add_course_button.clicked.connect(self.add_course_to_calendar)
+        #save and load schedule
+        self.save_button = QPushButton("Save Schedule")
+        self.save_button.clicked.connect(self.save_schedule)
+
+        self.load_button = QPushButton("Load Schedule")
+        self.load_button.clicked.connect(self.load_schedule)
 
         #added to layout
         layout.addWidget(QLabel("Add Course:"))
@@ -79,6 +87,8 @@ class CalendarView(QMainWindow):
         layout.addWidget(self.end_hour_input)
         layout.addWidget(self.update_slots_button)
         layout.addWidget(self.add_course_button)
+        layout.addWidget(self.save_button)
+        layout.addWidget(self.load_button)
 
         layout.addStretch()
 
@@ -166,3 +176,75 @@ class CalendarView(QMainWindow):
             self.setup_calendar(self.calendar.layout())
         except ValueError:
             print("Invalid time range format. Use HH:MM")
+    
+    #saving/loading section
+
+    def save_schedule(self):
+        #saves to a file
+        schedule_data = {
+            "time_slots": self.time_slots,
+            "courses": []
+        }
+
+        #first gets the courses
+        for (row, col), cell in self.calendar_cells.items():
+            if cell.toPlainText():
+                schedule_data["courses"].append({
+                    "name": cell.toPlainText(),
+                    "day": self.get_day_from_col(col),
+                    "start_time": self.time_slots[row - 1],  #adjusted for 0 index
+                    "end_time": self.time_slots[row] if row < len(self.time_slots) else None
+                })
+
+        #output to json
+        with open("schedule.json", "w") as file:
+            json.dump(schedule_data, file)
+        print("Schedule saved")
+
+    def load_schedule(self):
+        try:
+            with open("schedule.json", "r") as file:
+                schedule_data = json.load(file)
+
+            #time slot update
+            self.time_slots = schedule_data["time_slots"]
+            self.update_time_slots()  #regenerate the grid
+
+            #clears the calendar
+            for cell in self.calendar_cells.values():
+                cell.clear()
+                cell.setStyleSheet("background-color: #f0f0f0;")
+
+            #courses added back
+            for course in schedule_data["courses"]:
+                self.add_course_to_calendar_from_data(course)
+
+            print("Schedule loaded")
+        except FileNotFoundError:
+            print("No saved schedule found")
+        except Exception as e:
+            print(f"Error loading schedule: {e}")
+
+    #helper methods
+
+    def get_day_from_col(self, col):
+        #column index to day mappings
+        col_to_day = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday"}
+        return col_to_day.get(col, "Unknown")
+
+    def add_course_to_calendar_from_data(self, course):
+        #adds course from the saved data
+        day = course["day"]
+        start_time = course["start_time"]
+        name = course["name"]
+
+        #find row and column
+        try:
+            row = self.time_slots.index(start_time) + 1  #adjusedt for 1-based indexing
+            col = {"Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5}[day]
+            cell = self.calendar_cells.get((row, col))
+            if cell:
+                cell.setText(name)
+                cell.setStyleSheet("background-color: #b3e5fc;")
+        except ValueError:
+            print(f"Error: Invalid time slot for course '{name}'")
