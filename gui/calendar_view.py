@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QColorDialog,  QInputDialog, QMessageBox, QDialog
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 import json, os
 from gui.plan_window import PlanWindow
 
@@ -450,12 +451,15 @@ class CalendarView(QMainWindow):
                     start_time = self.time_slots[row]
                     end_time = self.time_slots[row + span] if (row + span) < len(self.time_slots) else self.time_slots[-1]
 
+                    color = item.background().color().name()
+
                     self.plans[self.current_plan]["courses"].append({
                         "name": item.text().split("\n")[0],
                         "credits": int(item.text().split("\n")[1].replace("Credits: ", "")),
                         "day": self.get_day_from_col(col),
                         "start_time": start_time,
-                        "end_time": end_time
+                        "end_time": end_time,
+                        "color": color
                     })
 
         try:
@@ -486,7 +490,12 @@ class CalendarView(QMainWindow):
                 span_rows = end_index - start_index
                 course_item = QTableWidgetItem(f"{course['name']}\nCredits: {course['credits']}")
                 course_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                course_item.setBackground(Qt.GlobalColor.cyan)
+                # course_item.setBackground(Qt.GlobalColor.cyan)
+                
+                color = course.get("color", "#00FFFF")  # Default to cyan if no color is saved
+                course_item.setBackground(QColor(color))
+
+
                 self.calendar_table.setSpan(start_index, col, span_rows, 1)
                 self.calendar_table.setItem(start_index, col, course_item)
             except ValueError:
