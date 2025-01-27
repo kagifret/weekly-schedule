@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 import json, os
 from gui.plan_window import PlanWindow
+from gui.add_course_dialog import AddCourseDialog
 
 class CalendarView(QMainWindow):
     def __init__(self):
@@ -44,21 +45,6 @@ class CalendarView(QMainWindow):
         self.initialize_plans()
 
     def setup_sidebar(self, layout):
-        self.course_name_input = QLineEdit()
-        self.course_name_input.setPlaceholderText("Course name")
-
-        self.course_code_input = QLineEdit()
-        self.course_code_input.setPlaceholderText("Course code")
-
-        self.credits_input = QLineEdit()
-        self.credits_input.setPlaceholderText("credits")
-
-        self.day_input = QComboBox()
-        self.day_input.addItems(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
-
-        self.time_input = QLineEdit()
-        self.time_input.setPlaceholderText("Time Slot (10:00-12:00)")
-
         #adding a course
         self.add_course_button = QPushButton("Add Course")
         self.add_course_button.clicked.connect(self.add_course_to_calendar)
@@ -109,17 +95,11 @@ class CalendarView(QMainWindow):
 
         #added to layout
         layout.addWidget(QLabel("Add Course:"))
-        layout.addWidget(self.course_name_input)
-        layout.addWidget(self.course_code_input)
-        layout.addWidget(self.credits_input)
-        layout.addWidget(self.day_input)
-        layout.addWidget(self.time_input)
         layout.addWidget(self.add_course_button)
         layout.addWidget(QLabel("Custom Time slots:"))
         layout.addWidget(self.start_hour_input)
         layout.addWidget(self.end_hour_input)
         layout.addWidget(self.update_slots_button)
-        layout.addWidget(self.add_course_button)
         layout.addWidget(self.save_button)
         #layout.addWidget(self.load_button)
 
@@ -144,6 +124,7 @@ class CalendarView(QMainWindow):
 
     def update_total_credits(self):
         self.total_credits_label.setText(f"Total Credits: {self.total_credits}")
+        print(f"Updated total credits: {self.total_credits}")
     
     def setup_calendar(self, layout):
     #removes any existing widgets in the layout
@@ -172,52 +153,66 @@ class CalendarView(QMainWindow):
         layout.addWidget(self.calendar_table)
 
     def add_course_to_calendar(self):
-        course_name = self.course_name_input.text()
-        course_code = self.course_code_input.text()
-        credits = self.credits_input.text()
-        day = self.day_input.currentText()
-        time_slot = self.time_input.text()
+        #open the course dialog prompt
+        dialog = AddCourseDialog(self.time_slots, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            course_details = dialog.get_course_details()
 
-        if not course_name or not course_code or not time_slot or not credits.isdigit():
-            QMessageBox.warning(self, "Invalid Input", "Please fill all fields correctly")
-            return
+            course_name = course_details["name"]
+            course_code = course_details["code"]
+            credits = course_details["credits"]
+            day = course_details["day"]
+            start_time = course_details["start_time"]
+            end_time = course_details["end_time"]
+            color = course_details["color"]
 
-        try:
-            start_time, end_time = time_slot.split("-")
-            start_index = self.time_slots.index(start_time)
-            end_index = self.time_slots.index(end_time)
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Time Slot", "Please enter a valid time slot (10:00-12:00)")
-            return
-
-        day_to_col = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4}
-        col = day_to_col.get(day, -1)
-        if col == -1:
-            QMessageBox.warning(self, "Invalid day", f"'{day}' is not a valid day")
-            return
-
-        for row in range(start_index, end_index):
-            if self.calendar_table.item(row, col):
-                QMessageBox.warning(self, "Schedule conflict", "This time slot is already occupied")
+            #time slot processing
+            try:
+                start_index = self.time_slots.index(start_time)
+                end_index = self.time_slots.index(end_time)
+            except ValueError:
+                QMessageBox.warning(self, "Invalid time slot", "Time slot is invalid")
                 return
 
-        #adds the course
-        span_rows = end_index - start_index
-        self.calendar_table.setSpan(start_index, col, span_rows, 1)
-        course_item = QTableWidgetItem(f"{course_name}\nCredits: {credits}")
-        course_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        course_item.setBackground(Qt.GlobalColor.cyan)
-        self.calendar_table.setItem(start_index, col, course_item)
+            day_to_col = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4}
+            col = day_to_col.get(day, -1)
+            if col == -1:
+                QMessageBox.warning(self, "Invalid day", f"'{day}' is not a valid day")
+                return
 
-        course_data = {
-            "name": course_name,
-            "credits": int(credits),
-            "start_time": start_time,
-            "end_time": end_time,
-            "day": day
-        }
-        self.plans[self.current_plan]["courses"].append(course_data)
-        print(f"Added course '{course_name}' to plan '{self.current_plan}'")
+            #conflict check
+            for row in range(start_index, end_index):
+                if self.calendar_table.item(row, col):
+                    QMessageBox.warning(self, "Schedule conflict", "This time slot is already occupied")
+                    return
+
+            #add course to the calendar
+            span_rows = end_index - start_index
+            self.calendar_table.setSpan(start_index, col, span_rows, 1)
+            course_item = QTableWidgetItem(f"{course_name}\nCredits: {credits}")
+            course_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            course_item.setBackground(QColor(color))
+            self.calendar_table.setItem(start_index, col, course_item)
+
+            #adding to the current plan
+            if self.current_plan:
+                self.plans[self.current_plan]["courses"].append({
+                    "name": course_name,
+                    "code": course_code,
+                    "credits": credits,
+                    "day": day,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "color": color
+                })
+                print(f"Added course '{course_name}' to plan '{self.current_plan}'")
+            else:
+                QMessageBox.warning(self, "No active plan", "No active plan to add the course")
+
+            if course_code not in self.course_codes:
+                self.course_codes.add(course_code)
+                self.total_credits += credits
+                self.update_total_credits()
 
     #function to remove the course block on the table
     def delete_selected_block(self):
@@ -236,18 +231,36 @@ class CalendarView(QMainWindow):
         credits = int(course_data[1].replace("Credits: ", ""))
         course_code = course_name
 
+        spans = []
+        for r in range(self.calendar_table.rowCount()):
+            for c in range(self.calendar_table.columnCount()):
+                current_item = self.calendar_table.item(r, c)
+                if current_item and current_item != item:
+                    span = self.calendar_table.rowSpan(r, c)
+                    spans.append((r, c, span, current_item))
+
         #removes the block
-        self.calendar_table.removeCellWidget(row, col)
-        self.calendar_table.clearSpans()
+        self.calendar_table.setSpan(row, col, 1, 1)
         self.calendar_table.takeItem(row, col)
 
         print(f"Removed course: {course_name}")
 
-        #adjust total credits sum
+        self.calendar_table.clearSpans()
+        for r, c, span, current_item in spans:
+            self.calendar_table.setSpan(r, c, span, 1)  #reapply spans
+            self.calendar_table.setItem(r, c, current_item)  #reapply items
+
+        #adjust total credits
         if course_code in self.course_codes:
             self.course_codes.remove(course_code)
             self.total_credits -= credits
             self.update_total_credits()
+
+        if self.current_plan:
+            self.plans[self.current_plan]["courses"] = [
+                course for course in self.plans[self.current_plan]["courses"]
+                if course["name"] != course_name
+            ]
 
     def update_time_slots(self):
         #gets the time range from the user input
@@ -427,7 +440,18 @@ class CalendarView(QMainWindow):
         self.current_plan = selected_plan
         self.load_plan_into_calendar(self.plans[self.current_plan])
 
+        self.recalculate_total_credits()
+
         print(f"Switched to plan: {self.current_plan}")
+    
+    def recalculate_total_credits(self):
+        self.total_credits = sum(
+            course["credits"] for course in self.plans.get(self.current_plan, {}).get("courses", [])
+        )
+        self.course_codes = {
+            course["name"] for course in self.plans.get(self.current_plan, {}).get("courses", [])
+        }
+        self.update_total_credits()
 
     def update_plan_selector(self):
         self.plan_selector.clear()
@@ -500,7 +524,6 @@ class CalendarView(QMainWindow):
                 self.calendar_table.setItem(start_index, col, course_item)
             except ValueError:
                 print(f"Invalid time slot for course '{course['name']}'. Skipping.")
-
     
     def initialize_plans(self):
         #checks if the json file already exists
@@ -515,6 +538,7 @@ class CalendarView(QMainWindow):
         
         if self.current_plan and self.current_plan in self.plans:
             self.load_plan_into_calendar(self.plans[self.current_plan])
+            self.recalculate_total_credits()
 
     def prompt_new_plan(self):
         if not hasattr(self, "time_slots"):
