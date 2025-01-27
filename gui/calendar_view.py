@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor
 import json, os
 from gui.plan_window import PlanWindow
 from gui.add_course_dialog import AddCourseDialog
+from gui.timeslot_update_dialog import TimeSlotUpdateDialog
 
 class CalendarView(QMainWindow):
     def __init__(self):
@@ -50,12 +51,6 @@ class CalendarView(QMainWindow):
         self.add_course_button.clicked.connect(self.add_course_to_calendar)
 
         #custom time hours customization
-        self.start_hour_input = QLineEdit()
-        self.start_hour_input.setPlaceholderText("Start Hour (ex: 08:00)")
-
-        self.end_hour_input = QLineEdit()
-        self.end_hour_input.setPlaceholderText("End Hour (ex: 18:00)")
-
         self.update_slots_button = QPushButton("Update Time slots")
         self.update_slots_button.clicked.connect(self.update_time_slots)
 
@@ -97,8 +92,6 @@ class CalendarView(QMainWindow):
         layout.addWidget(QLabel("Add Course:"))
         layout.addWidget(self.add_course_button)
         layout.addWidget(QLabel("Custom Time slots:"))
-        layout.addWidget(self.start_hour_input)
-        layout.addWidget(self.end_hour_input)
         layout.addWidget(self.update_slots_button)
         layout.addWidget(self.save_button)
         #layout.addWidget(self.load_button)
@@ -263,35 +256,62 @@ class CalendarView(QMainWindow):
             ]
 
     def update_time_slots(self):
-        #gets the time range from the user input
-        start_hour = self.start_hour_input.text()
-        end_hour = self.end_hour_input.text()
+        full_time_range = self.generate_full_time_range()
 
-        try:
-            #input validation
-            start_parts = list(map(int, start_hour.split(":")))
-            end_parts = list(map(int, end_hour.split(":")))
+        #opens the dialog
+        dialog = TimeSlotUpdateDialog(self.time_slots, full_time_range, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            start_time, end_time = dialog.get_time_slot_range()
 
-            start_minutes = start_parts[0] * 60 + start_parts[1]
-            end_minutes = end_parts[0] * 60 + end_parts[1]
+            #gen new time slots
+            try:
+                start_index = full_time_range.index(start_time)
+                end_index = full_time_range.index(end_time)
 
-            if start_minutes >= end_minutes or start_minutes < 0 or end_minutes > 24 * 60:
-                raise ValueError("Invalid time range")
+                #update the time slots
+                self.time_slots = full_time_range[start_index:end_index]
 
-            #generates time slots with 30 min intervals
-            self.time_slots = []
-            for minutes in range(start_minutes, end_minutes, 30):
-                hour = minutes // 60
-                minute = minutes % 60
-                self.time_slots.append(f"{hour:02}:{minute:02}")
+                #rebuild the calendar layour
+                self.rebuild_calendar()
+            except ValueError:
+                QMessageBox.warning(self, "Invalid input", "The specified time slots are invalid")
+        
+    def generate_full_time_range(self):
+        full_time_range = []
+        for hour in range(6, 23):  #06:00 to 23:00
+            for minute in [0, 30]:
+                full_time_range.append(f"{hour:02d}:{minute:02d}")
+        return full_time_range
 
-            #regenerates the grid
-            self.setup_calendar(self.calendar.layout())
-        except ValueError:
-            print("Invalid time range format. Use HH:MM")
+    def rebuild_calendar(self):
+        #save the existing data first
+        preserved_courses = []
+        for course in self.plans.get(self.current_plan, {}).get("courses", []):
+            if course["start_time"] in self.time_slots and course["end_time"] in self.time_slots:
+                preserved_courses.append(course)
+
+        #clear and rebuild the calendar
+        self.setup_calendar(self.calendar.layout())
+
+        #restore the courses
+        for course in preserved_courses:
+            try:
+                start_index = self.time_slots.index(course["start_time"])
+                end_index = self.time_slots.index(course["end_time"])
+                day_to_col = {"Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3, "Friday": 4}
+                col = day_to_col.get(course["day"], -1)
+
+                if col != -1:
+                    span_rows = end_index - start_index
+                    course_item = QTableWidgetItem(f"{course['name']}\nCredits: {course['credits']}")
+                    course_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    course_item.setBackground(QColor(course.get("color", "#00FFFF")))
+                    self.calendar_table.setSpan(start_index, col, span_rows, 1)
+                    self.calendar_table.setItem(start_index, col, course_item)
+            except ValueError:
+                #ignore the courses that cant be added
+                print(f"Course '{course['name']}' could not be restored.")
     
-    #saving/loading section
-
     def save_schedule(self):
         #saves the active plan first
         self.save_active_plan()
